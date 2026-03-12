@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 import math
 import plotly.express as px
+import plotly.graph_objects as go
 
-# Ustawienia strony muszą być na samej górze
 st.set_page_config(page_title="F1 Advanced Elo", layout="wide", page_icon="🏎️")
 
 # --- SŁOWNIK JĘZYKOWY (TŁUMACZENIA) ---
@@ -51,7 +51,11 @@ T = {
         'stat_starts': "Liczba startów (GP)", 'stat_wins': "Wygrane wyścigi", 'stat_podiums': "Miejsca na podium", 'stat_poles': "Pole Position",
         'race_profile_title': "🏆 Wizytówka Sesji",
         'winner': "🥇 1. Miejsce", 'second_place': "🥈 2. Miejsce", 'third_place': "🥉 3. Miejsce",
-        'pole_pos': "⏱️ Pole Position:", 'fastest_lap': "🚀 Najszybsze okrążenie:", 'no_data_session': "Brak danych dla tej sesji w historycznej bazie."
+        'pole_pos': "⏱️ Pole Position:", 'fastest_lap': "🚀 Najszybsze okrążenie:", 'no_data_session': "Brak danych dla tej sesji w historycznej bazie.",
+        'highlight_options': "✨ Zaznacz na wykresie:",
+        'h_wins': "Zwycięstwa 🥇", 'h_podiums': "Podia 🏆", 'h_poles': "Pole Position ⏱️", 'h_fastest': "Najszybsze Okr. 🚀",
+        'track_elo_drv_title': "🛤️ Ulubione Tory (Siła kierowcy na konkretnych obiektach)",
+        'track_name': "Tor (W całej karierze)", 'track_elo': "Elo na tym torze"
     },
     'English': {
         'title': "🏎️ Formula 1 - Elo Rating Database",
@@ -96,11 +100,14 @@ T = {
         'stat_starts': "Race Starts (GP)", 'stat_wins': "Race Wins", 'stat_podiums': "Podium Finishes", 'stat_poles': "Pole Positions",
         'race_profile_title': "🏆 Session Profile",
         'winner': "🥇 1st Place", 'second_place': "🥈 2nd Place", 'third_place': "🥉 3rd Place",
-        'pole_pos': "⏱️ Pole Position:", 'fastest_lap': "🚀 Fastest Lap:", 'no_data_session': "No data available for this session in the database."
+        'pole_pos': "⏱️ Pole Position:", 'fastest_lap': "🚀 Fastest Lap:", 'no_data_session': "No data available for this session in the database.",
+        'highlight_options': "✨ Highlight on chart:",
+        'h_wins': "Wins 🥇", 'h_podiums': "Podiums 🏆", 'h_poles': "Pole Position ⏱️", 'h_fastest': "Fastest Lap 🚀",
+        'track_elo_drv_title': "🛤️ Best Tracks (Driver's strength on specific circuits)",
+        'track_name': "Track (Career-wide)", 'track_elo': "Elo on this track"
     }
 }
 
-# --- SŁOWNIKI FLAG ---
 NATIONALITY_TO_CODE = {
     'British': 'gb', 'Dutch': 'nl', 'Monegasque': 'mc', 'Spanish': 'es', 'French': 'fr', 'Australian': 'au', 
     'Japanese': 'jp', 'Finnish': 'fi', 'Canadian': 'ca', 'Thai': 'th', 'American': 'us', 'Chinese': 'cn',
@@ -126,7 +133,6 @@ K_QUALI, K_SPRINT, K_RACE, K_TRACK = 1.0, 1.5, 2.0, 16.0
 def get_expected_score(rating_a, rating_b):
     return 1 / (1 + math.pow(10, (rating_b - rating_a) / 400))
 
-# --- GŁÓWNA LOGIKA DANYCH ---
 @st.cache_data
 def load_and_calculate_data():
     try:
@@ -138,7 +144,7 @@ def load_and_calculate_data():
         constructors = pd.read_csv('constructors.csv')
         circuits = pd.read_csv('circuits.csv')
     except FileNotFoundError:
-        return None, None, None
+        return None, None, None, None
 
     res_cons = results.merge(constructors, on='constructorId', suffixes=('', '_cons'))
     team_col_name = 'name_cons' if 'name_cons' in res_cons.columns else 'name'
@@ -171,6 +177,7 @@ def load_and_calculate_data():
 
     races = races.sort_values(by=['year', 'round'])
     elo_quali, elo_sprint, elo_race, elo_overall, elo_tracks = {}, {}, {}, {}, {}
+    elo_driver_track = {} # NOWE: Elo kierowcy na konkretnym torze!
     track_seasons = {}
     history, track_history = [], []
 
@@ -184,7 +191,7 @@ def load_and_calculate_data():
             track_seasons[c_id] = set()
         track_seasons[c_id].add(race['year'])
 
-        # Kwalifikacje
+        poles_in_race = set()
         quali_data = qualifying[qualifying['raceId'] == r_id]
         if not quali_data.empty:
             q_res = []
@@ -193,20 +200,24 @@ def load_and_calculate_data():
                 d_id = row['driverId']
                 q_res.append({'driverId': d_id, 'pos': pos})
                 if pos == 1:
+                    poles_in_race.add(d_id)
                     fname = driver_dict.get(d_id)
                     if fname in driver_info: driver_info[fname]['Stat_Poles'] += 1
             update_driver_elo(q_res, elo_quali, elo_overall, K_QUALI)
             
-        # Sprint
         sprint_data = sprint_results[sprint_results['raceId'] == r_id]
         if not sprint_data.empty:
             s_res = [{'driverId': row['driverId'], 'pos': row['positionOrder']} for _, row in sprint_data.iterrows()]
             update_driver_elo(s_res, elo_sprint, elo_overall, K_SPRINT)
             
-        # Wyścig
         race_data = results[results['raceId'] == r_id]
         if not race_data.empty:
             r_res = []
+            fastest_lap_driver = None
+            if 'rank' in race_data.columns:
+                fl_row = race_data[race_data['rank'].astype(str) == '1']
+                if not fl_row.empty: fastest_lap_driver = fl_row.iloc[0]['driverId']
+
             for _, row in race_data.iterrows():
                 pos = row['positionOrder']
                 d_id = row['driverId']
@@ -216,8 +227,41 @@ def load_and_calculate_data():
                     driver_info[fname]['Stat_Starts'] += 1
                     if pos == 1: driver_info[fname]['Stat_Wins'] += 1
                     if pos <= 3: driver_info[fname]['Stat_Podiums'] += 1
+
+                # Ustawianie znaczników dla historii
+                history.append({
+                    'Data': race['date'], 'Rok': race['year'], 'Dekada': f"{(race['year'] // 10) * 10}s",
+                    'Runda': race['round'], 'Wyścig': race['name'], 'Kierowca': fname, 
+                    'Zespol': race_driver_team.get((r_id, d_id), "Unknown"), 'Narodowosc': driver_info.get(fname, {}).get('Narodowosc', ''),
+                    'Is_Win': True if pos == 1 else False,
+                    'Is_Podium': True if pos <= 3 else False,
+                    'Is_Pole': True if d_id in poles_in_race else False,
+                    'Is_Fastest': True if d_id == fastest_lap_driver else False,
+                    'Elo_Kwalifikacje': 0, 'Elo_Sprint': 0, 'Elo_Wyścig': 0, 'Elo_Ogólne': 0 # Wypełnimy po update
+                })
+
+            # AKTUALIZACJA TRACK-SPECIFIC DRIVER ELO
+            for d in r_res:
+                if (d['driverId'], c_id) not in elo_driver_track:
+                    elo_driver_track[(d['driverId'], c_id)] = INITIAL_ELO
+            current_dt_elo = {d['driverId']: elo_driver_track[(d['driverId'], c_id)] for d in r_res}
+            changes_dt = {d['driverId']: 0 for d in r_res}
             
-            # ELO TORU
+            for i in range(len(r_res)):
+                for j in range(i+1, len(r_res)):
+                    a, b = r_res[i], r_res[j]
+                    id_a, pos_a = a['driverId'], a['pos']
+                    id_b, pos_b = b['driverId'], b['pos']
+                    e_a = get_expected_score(current_dt_elo[id_a], current_dt_elo[id_b])
+                    e_b = get_expected_score(current_dt_elo[id_b], current_dt_elo[id_a])
+                    s_a = 1 if pos_a < pos_b else (0 if pos_a > pos_b else 0.5)
+                    s_b = 1 if pos_b < pos_a else (0 if pos_b > pos_a else 0.5)
+                    changes_dt[id_a] += K_RACE * (s_a - e_a)
+                    changes_dt[id_b] += K_RACE * (s_b - e_b)
+            for d_id in changes_dt:
+                elo_driver_track[(d_id, c_id)] = current_dt_elo[d_id] + changes_dt[d_id]
+
+            # ELO TORU (Względem faworyta)
             current_race_elos = {d['driverId']: elo_overall.get(d['driverId'], INITIAL_ELO) for d in r_res}
             if current_race_elos:
                 favorite_id = max(current_race_elos, key=current_race_elos.get)
@@ -235,26 +279,33 @@ def load_and_calculate_data():
                 'Elo_Toru': round(elo_tracks[c_id], 1)
             })
 
-            # AKTUALIZACJA ELO KIEROWCÓW
+            # AKTUALIZACJA GŁÓWNEGO ELO KIEROWCÓW
             update_driver_elo(r_res, elo_race, elo_overall, K_RACE)
             
-            for drv in r_res:
-                d_id = drv['driverId']
-                full_name = driver_dict.get(d_id, str(d_id))
-                team_name = race_driver_team.get((r_id, d_id), "Unknown")
-                nat = driver_info.get(full_name, {}).get('Narodowosc', '')
-                
-                history.append({
-                    'Data': race['date'], 'Rok': race['year'], 'Dekada': f"{(race['year'] // 10) * 10}s",
-                    'Runda': race['round'], 'Wyścig': race['name'], 'Kierowca': full_name, 
-                    'Zespol': team_name, 'Narodowosc': nat,
-                    'Elo_Kwalifikacje': round(elo_quali.get(d_id, INITIAL_ELO), 1),
-                    'Elo_Sprint': round(elo_sprint.get(d_id, INITIAL_ELO), 1),
-                    'Elo_Wyścig': round(elo_race.get(d_id, INITIAL_ELO), 1),
-                    'Elo_Ogólne': round(elo_overall.get(d_id, INITIAL_ELO), 1)
-                })
+            # Aktualizacja zapisanych wierszy history (ostatnie N elementów)
+            for idx in range(len(history) - len(r_res), len(history)):
+                hist_row = history[idx]
+                fname = hist_row['Kierowca']
+                # Odwrócony słownik dla driver_dict na szybko (wyszukiwanie ID po imieniu dla zapisu)
+                d_id = next(k for k, v in driver_dict.items() if v == fname)
+                hist_row['Elo_Kwalifikacje'] = round(elo_quali.get(d_id, INITIAL_ELO), 1)
+                hist_row['Elo_Sprint'] = round(elo_sprint.get(d_id, INITIAL_ELO), 1)
+                hist_row['Elo_Wyścig'] = round(elo_race.get(d_id, INITIAL_ELO), 1)
+                hist_row['Elo_Ogólne'] = round(elo_overall.get(d_id, INITIAL_ELO), 1)
 
-    return pd.DataFrame(history).reset_index(drop=True), pd.DataFrame.from_dict(driver_info, orient='index'), pd.DataFrame(track_history)
+    # Przygotowanie DF dla Track-Specific Driver Elo
+    drv_track_list = []
+    for (d_id, c_id), elo_val in elo_driver_track.items():
+        fname = driver_dict.get(d_id)
+        cname = circuit_dict.get(c_id)
+        if fname and cname:
+            drv_track_list.append({
+                'Kierowca': fname, 'Tor': cname, 'Flaga_URL': f"https://flagcdn.com/24x18/{CIRCUIT_COUNTRY_TO_CODE.get(circuit_country_dict.get(c_id, ''), '')}.png",
+                'Elo_Toru_Dla_Kierowcy': round(elo_val, 1)
+            })
+    df_drv_track = pd.DataFrame(drv_track_list)
+
+    return pd.DataFrame(history).reset_index(drop=True), pd.DataFrame.from_dict(driver_info, orient='index'), pd.DataFrame(track_history), df_drv_track
 
 def update_driver_elo(event_results, specific_elo, overall_elo, k_factor):
     for drv in event_results:
@@ -268,13 +319,10 @@ def update_driver_elo(event_results, specific_elo, overall_elo, k_factor):
         for j in range(i + 1, len(event_results)):
             id_a, pos_a = event_results[i]['driverId'], event_results[i]['pos']
             id_b, pos_b = event_results[j]['driverId'], event_results[j]['pos']
-            
             e_a_spec, e_b_spec = get_expected_score(specific_elo[id_a], specific_elo[id_b]), get_expected_score(specific_elo[id_b], specific_elo[id_a])
             e_a_ovr, e_b_ovr = get_expected_score(overall_elo[id_a], overall_elo[id_b]), get_expected_score(overall_elo[id_b], overall_elo[id_a])
-            
             s_a = 1 if pos_a < pos_b else (0 if pos_a > pos_b else 0.5)
             s_b = 1 if pos_b < pos_a else (0 if pos_b > pos_a else 0.5)
-            
             changes_spec[id_a] += k_factor * (s_a - e_a_spec)
             changes_spec[id_b] += k_factor * (s_b - e_b_spec)
             changes_ovr[id_a] += k_factor * (s_a - e_a_ovr)
@@ -305,7 +353,7 @@ L = T[lang]
 st.title(L['title'])
 
 with st.spinner(L['loading']):
-    df_history, df_info, df_tracks = load_and_calculate_data()
+    df_history, df_info, df_tracks, df_drv_track = load_and_calculate_data()
 
 if df_history is None:
     st.error(L['missing_files'])
@@ -315,7 +363,6 @@ menu = st.sidebar.radio(L['nav'], [L['menu_race'], L['menu_peak'], L['menu_decad
 
 def display_driver_table(df, elo_col, show_year=False):
     if elo_col == 'Elo_Sprint': df = df[df['Elo_Sprint'] != INITIAL_ELO]
-    
     cols = ['Flaga_URL', 'Kierowca']
     if 'Zespol' in df.columns: cols.append('Zespol')
     if show_year and 'Rok' in df.columns: cols.append('Rok')
@@ -323,7 +370,6 @@ def display_driver_table(df, elo_col, show_year=False):
 
     disp_df = df[cols].sort_values(elo_col, ascending=False).reset_index(drop=True)
     disp_df.index = disp_df.index + 1
-    
     col_config = {
         "Flaga_URL": st.column_config.ImageColumn(L['country']),
         "Kierowca": st.column_config.TextColumn(L['driver']),
@@ -356,7 +402,6 @@ if menu == L['menu_race']:
         c_nat, c_team = st.columns(2)
         with c_nat: sel_nat = st.multiselect(L['filter_nat'], sorted(wyniki_po_wyscigu['Narodowosc'].unique()))
         with c_team: sel_team = st.multiselect(L['filter_team'], sorted(wyniki_po_wyscigu['Zespol'].unique()))
-        
     if sel_nat: wyniki_po_wyscigu = wyniki_po_wyscigu[wyniki_po_wyscigu['Narodowosc'].isin(sel_nat)]
     if sel_team: wyniki_po_wyscigu = wyniki_po_wyscigu[wyniki_po_wyscigu['Zespol'].isin(sel_team)]
 
@@ -368,7 +413,6 @@ if menu == L['menu_race']:
         with tab2: display_driver_table(wyniki_po_wyscigu, 'Elo_Wyścig')
         with tab3: display_driver_table(wyniki_po_wyscigu, 'Elo_Kwalifikacje')
         with tab4: display_driver_table(wyniki_po_wyscigu, 'Elo_Sprint')
-
     with col2:
         st.subheader(L['form_chart'])
         elo_type = st.selectbox(L['elo_type'], ['Elo_Ogólne', 'Elo_Wyścig', 'Elo_Kwalifikacje', 'Elo_Sprint'])
@@ -391,15 +435,10 @@ elif menu == L['menu_peak']:
         c_nat, c_team = st.columns(2)
         with c_nat: sel_nat_p = st.multiselect(L['filter_nat'] + " ", sorted([n for n in peak_overall['Narodowosc'].unique() if pd.notna(n)]))
         with c_team: sel_team_p = st.multiselect(L['filter_team'] + " ", sorted([t for t in peak_overall['Zespol'].unique() if pd.notna(t)]))
-        
     if sel_nat_p: 
-        peak_overall = peak_overall[peak_overall['Narodowosc'].isin(sel_nat_p)]
-        peak_race = peak_race[peak_race['Narodowosc'].isin(sel_nat_p)]
-        peak_quali = peak_quali[peak_quali['Narodowosc'].isin(sel_nat_p)]
+        peak_overall, peak_race, peak_quali = peak_overall[peak_overall['Narodowosc'].isin(sel_nat_p)], peak_race[peak_race['Narodowosc'].isin(sel_nat_p)], peak_quali[peak_quali['Narodowosc'].isin(sel_nat_p)]
     if sel_team_p: 
-        peak_overall = peak_overall[peak_overall['Zespol'].isin(sel_team_p)]
-        peak_race = peak_race[peak_race['Zespol'].isin(sel_team_p)]
-        peak_quali = peak_quali[peak_quali['Zespol'].isin(sel_team_p)]
+        peak_overall, peak_race, peak_quali = peak_overall[peak_overall['Zespol'].isin(sel_team_p)], peak_race[peak_race['Zespol'].isin(sel_team_p)], peak_quali[peak_quali['Zespol'].isin(sel_team_p)]
     
     col1, col2 = st.columns([1, 1])
     with col1:
@@ -419,10 +458,8 @@ elif menu == L['menu_peak']:
 elif menu == L['menu_decades']:
     st.header(L['decades_title'])
     st.markdown(L['decades_desc'])
-    
     dostepne_dekady = sorted(df_history['Dekada'].unique(), reverse=True)
     wybrana_dekada = st.selectbox(L['select_decade'], dostepne_dekady)
-    
     df_dekady = df_history[df_history['Dekada'] == wybrana_dekada]
     
     peak_dec_overall = get_peak_df(df_dekady, 'Elo_Ogólne')
@@ -445,13 +482,11 @@ elif menu == L['menu_profile']:
         for t_str in df_info['Wszystkie_Zespoly'].dropna():
             if t_str != "Brak danych":
                 for t in t_str.split(", "): all_t.add(t)
-                
         with c_nat: sel_nat_prof = st.multiselect(L['filter_nat'] + "  ", nations)
         with c_team: sel_team_prof = st.multiselect(L['filter_team'] + "  ", sorted(list(all_t)))
 
     filtered_info = df_info.copy()
-    if sel_nat_prof:
-        filtered_info = filtered_info[filtered_info['Narodowosc'].isin(sel_nat_prof)]
+    if sel_nat_prof: filtered_info = filtered_info[filtered_info['Narodowosc'].isin(sel_nat_prof)]
     if sel_team_prof:
         def has_t(team_str):
             if pd.isna(team_str) or team_str == "Brak danych": return False
@@ -460,7 +495,6 @@ elif menu == L['menu_profile']:
         filtered_info = filtered_info[filtered_info['Wszystkie_Zespoly'].apply(has_t)]
 
     driver_list = sorted(filtered_info.index.unique())
-    
     if len(driver_list) == 0:
         st.warning("Brak wyników po filtracji.")
     else:
@@ -482,33 +516,60 @@ elif menu == L['menu_profile']:
             st.markdown("---")
             
             st.markdown(f"### {L['custom_stats']}")
-            stat_options = {
-                L['stat_starts']: info['Stat_Starts'],
-                L['stat_wins']: info['Stat_Wins'],
-                L['stat_podiums']: info['Stat_Podiums'],
-                L['stat_poles']: info['Stat_Poles']
-            }
-            default_selections = [L['stat_starts'], L['stat_wins'], L['stat_podiums']]
-            selected_stats = st.multiselect(" ", list(stat_options.keys()), default=default_selections)
-            
+            stat_options = {L['stat_starts']: info['Stat_Starts'], L['stat_wins']: info['Stat_Wins'], L['stat_podiums']: info['Stat_Podiums'], L['stat_poles']: info['Stat_Poles']}
+            selected_stats = st.multiselect(" ", list(stat_options.keys()), default=[L['stat_starts'], L['stat_wins'], L['stat_podiums']])
             if selected_stats:
                 stat_cols = st.columns(len(selected_stats))
                 for i, stat_name in enumerate(selected_stats):
                     stat_cols[i].metric(stat_name, stat_options[stat_name])
             
             st.markdown("---")
-            st.markdown("### 📈 Formuła Elo")
-            c1, c2, c3 = st.columns(3)
-            c1.metric(L['last_elo'], ostatnie['Elo_Ogólne'])
-            c2.metric(L['peak_max'], max_elo_row['Elo_Ogólne'], f"{max_elo_row['Rok']} {max_elo_row['Wyścig']} ({max_elo_row['Zespol']})", delta_color="normal")
-            c3.metric(L['lowest_elo'], min_elo_row['Elo_Ogólne'], f"{min_elo_row['Rok']} {min_elo_row['Wyścig']}", delta_color="inverse")
+            tab_hist, tab_track = st.tabs([L['career_path'], L['track_elo_drv_title']])
             
-            st.markdown("---")
-            st.subheader(L['career_path'])
-            melted_df = driver_history.melt(id_vars=['Data', 'Wyścig', 'Rok'], value_vars=['Elo_Ogólne', 'Elo_Wyścig', 'Elo_Kwalifikacje', 'Elo_Sprint'], var_name='Rodzaj_Elo', value_name='Wartość')
-            melted_df = melted_df[~((melted_df['Rodzaj_Elo'] == 'Elo_Sprint') & (melted_df['Wartość'] == INITIAL_ELO))]
-            fig2 = px.line(melted_df, x='Data', y='Wartość', color='Rodzaj_Elo', hover_data=['Wyścig', 'Rok'])
-            st.plotly_chart(fig2, use_container_width=True)
+            with tab_hist:
+                c1, c2, c3 = st.columns(3)
+                c1.metric(L['last_elo'], ostatnie['Elo_Ogólne'])
+                c2.metric(L['peak_max'], max_elo_row['Elo_Ogólne'], f"{max_elo_row['Rok']} {max_elo_row['Wyścig']} ({max_elo_row['Zespol']})", delta_color="normal")
+                c3.metric(L['lowest_elo'], min_elo_row['Elo_Ogólne'], f"{min_elo_row['Rok']} {min_elo_row['Wyścig']}", delta_color="inverse")
+                
+                st.markdown(f"**{L['highlight_options']}**")
+                c_h1, c_h2, c_h3, c_h4 = st.columns(4)
+                with c_h1: show_wins = st.checkbox(L['h_wins'])
+                with c_h2: show_podiums = st.checkbox(L['h_podiums'])
+                with c_h3: show_poles = st.checkbox(L['h_poles'])
+                with c_h4: show_fls = st.checkbox(L['h_fastest'])
+
+                melted_df = driver_history.melt(id_vars=['Data', 'Wyścig', 'Rok', 'Is_Win', 'Is_Podium', 'Is_Pole', 'Is_Fastest'], value_vars=['Elo_Ogólne', 'Elo_Wyścig', 'Elo_Kwalifikacje', 'Elo_Sprint'], var_name='Rodzaj_Elo', value_name='Wartość')
+                melted_df = melted_df[~((melted_df['Rodzaj_Elo'] == 'Elo_Sprint') & (melted_df['Wartość'] == INITIAL_ELO))]
+                
+                fig2 = px.line(melted_df, x='Data', y='Wartość', color='Rodzaj_Elo', hover_data=['Wyścig', 'Rok'])
+                
+                # Dodawanie znaczników punktowych
+                if show_wins:
+                    wins_df = melted_df[melted_df['Is_Win'] & (melted_df['Rodzaj_Elo'] == 'Elo_Ogólne')]
+                    fig2.add_trace(go.Scatter(x=wins_df['Data'], y=wins_df['Wartość'], mode='markers', marker=dict(symbol='star', size=12, color='gold'), name=L['h_wins']))
+                if show_podiums:
+                    pod_df = melted_df[melted_df['Is_Podium'] & (melted_df['Rodzaj_Elo'] == 'Elo_Ogólne')]
+                    fig2.add_trace(go.Scatter(x=pod_df['Data'], y=pod_df['Wartość'], mode='markers', marker=dict(symbol='circle', size=8, color='silver'), name=L['h_podiums']))
+                if show_poles:
+                    pol_df = melted_df[melted_df['Is_Pole'] & (melted_df['Rodzaj_Elo'] == 'Elo_Kwalifikacje')]
+                    fig2.add_trace(go.Scatter(x=pol_df['Data'], y=pol_df['Wartość'], mode='markers', marker=dict(symbol='diamond', size=10, color='purple'), name=L['h_poles']))
+                if show_fls:
+                    fls_df = melted_df[melted_df['Is_Fastest'] & (melted_df['Rodzaj_Elo'] == 'Elo_Wyścig')]
+                    fig2.add_trace(go.Scatter(x=fls_df['Data'], y=fls_df['Wartość'], mode='markers', marker=dict(symbol='triangle-up', size=10, color='red'), name=L['h_fastest']))
+
+                st.plotly_chart(fig2, use_container_width=True)
+                
+            with tab_track:
+                driver_tracks = df_drv_track[df_drv_track['Kierowca'] == selected_driver].sort_values('Elo_Toru_Dla_Kierowcy', ascending=False).reset_index(drop=True)
+                driver_tracks.index = driver_tracks.index + 1
+                
+                st.dataframe(driver_tracks[['Flaga_URL', 'Tor', 'Elo_Toru_Dla_Kierowcy']], 
+                    column_config={
+                        "Flaga_URL": st.column_config.ImageColumn(L['country']),
+                        "Tor": st.column_config.TextColumn(L['track_name']),
+                        "Elo_Toru_Dla_Kierowcy": st.column_config.NumberColumn(L['track_elo'], format="%.1f")
+                    }, height=500, use_container_width=True)
 
 elif menu == L['menu_track']:
     st.header(L['track_title'])
@@ -563,14 +624,11 @@ elif menu == L['menu_results']:
                 lambda nat: f"https://flagcdn.com/24x18/{NATIONALITY_TO_CODE.get(str(nat).strip(), '')}.png" if NATIONALITY_TO_CODE.get(str(nat).strip(), '') else None
             )
             df = df.sort_values(pos_col)
-            
             cols_to_keep = [pos_col, 'Flaga_URL', 'Kierowca', 'team_name']
             final_cols = [L['pos'], L['country'], L['driver'], L['team']]
-            
             if show_points and 'points' in df.columns:
                 cols_to_keep.append('points')
                 final_cols.append(L['points'])
-                
             if 'q1' in df.columns:
                 cols_to_keep.extend(['q1', 'q2', 'q3'])
                 final_cols.extend(['Q1', 'Q2', 'Q3'])
@@ -588,8 +646,7 @@ elif menu == L['menu_results']:
         
         with tab_r:
             r_data = res_df[res_df['raceId'] == r_id].copy()
-            if r_data.empty:
-                st.info(L['no_data_session'])
+            if r_data.empty: st.info(L['no_data_session'])
             else:
                 r_data = r_data.sort_values('positionOrder')
                 podium = r_data.head(3)
@@ -615,48 +672,40 @@ elif menu == L['menu_results']:
                 if p1: c2.markdown(f"#### {L['winner']}\n**{get_driver_name(p1)}**")
                 if p2: c1.markdown(f"#### {L['second_place']}\n**{get_driver_name(p2)}**")
                 if p3: c3.markdown(f"#### {L['third_place']}\n**{get_driver_name(p3)}**")
-                
                 st.markdown("---")
                 c4, c5 = st.columns(2)
                 if pole_driver: c4.markdown(f"**{L['pole_pos']}** {get_driver_name(pole_driver)}")
                 if fl_driver: c5.markdown(f"**{L['fastest_lap']}** {get_driver_name(fl_driver)}{fl_time}")
-                
                 st.markdown("---")
                 disp_df = format_event_table(r_data, 'positionOrder', show_points=True)
                 st.dataframe(disp_df, column_config={L['country']: st.column_config.ImageColumn(" ")}, height=500, use_container_width=True)
 
         with tab_q:
             q_data = qual_df[qual_df['raceId'] == r_id].copy()
-            if q_data.empty:
-                st.info(L['no_data_session'])
+            if q_data.empty: st.info(L['no_data_session'])
             else:
                 q_data = q_data.sort_values('position')
                 p1 = q_data.iloc[0]['driverId'] if len(q_data) > 0 else None
-                
                 st.markdown(f"### {L['race_profile_title']}")
                 if p1: st.markdown(f"#### {L['winner']}\n**{get_driver_name(p1)}**")
-                
                 st.markdown("---")
                 disp_df = format_event_table(q_data, 'position', show_points=False)
                 st.dataframe(disp_df, column_config={L['country']: st.column_config.ImageColumn(" ")}, height=500, use_container_width=True)
 
         with tab_s:
             s_data = sprint_df[sprint_df['raceId'] == r_id].copy()
-            if s_data.empty:
-                st.info(L['no_data_session'])
+            if s_data.empty: st.info(L['no_data_session'])
             else:
                 s_data = s_data.sort_values('positionOrder')
                 podium = s_data.head(3)
                 p1 = podium.iloc[0]['driverId'] if len(podium) > 0 else None
                 p2 = podium.iloc[1]['driverId'] if len(podium) > 1 else None
                 p3 = podium.iloc[2]['driverId'] if len(podium) > 2 else None
-                
                 st.markdown(f"### {L['race_profile_title']}")
                 c1, c2, c3 = st.columns(3)
                 if p1: c2.markdown(f"#### {L['winner']}\n**{get_driver_name(p1)}**")
                 if p2: c1.markdown(f"#### {L['second_place']}\n**{get_driver_name(p2)}**")
                 if p3: c3.markdown(f"#### {L['third_place']}\n**{get_driver_name(p3)}**")
-                
                 st.markdown("---")
                 disp_df = format_event_table(s_data, 'positionOrder', show_points=True)
                 st.dataframe(disp_df, column_config={L['country']: st.column_config.ImageColumn(" ")}, height=500, use_container_width=True)
