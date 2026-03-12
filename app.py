@@ -5,13 +5,18 @@ import plotly.express as px
 
 st.set_page_config(page_title="F1 Zaawansowane Elo", layout="wide")
 
-# --- SŁOWNIK FLAG ---
-FLAGS = {
-    'British': '🇬🇧', 'Dutch': '🇳🇱', 'Monegasque': '🇲🇨', 'Spanish': '🇪🇸',
-    'French': '🇫🇷', 'Australian': '🇦🇺', 'Japanese': '🇯🇵', 'Finnish': '🇫🇮',
-    'Canadian': '🇨🇦', 'Thai': '🇹🇭', 'American': '🇺🇸', 'Chinese': '🇨🇳',
-    'Mexican': '🇲🇽', 'German': '🇩🇪', 'Danish': '🇩🇰', 'New Zealander': '🇳🇿',
-    'Italian': '🇮🇹', 'Brazilian': '🇧🇷', 'Polish': '🇵🇱', 'Argentine': '🇦🇷'
+# --- SŁOWNIK FLAG DO FLAGCDN (Kody ISO krajów) ---
+NATIONALITY_TO_CODE = {
+    'British': 'gb', 'Dutch': 'nl', 'Monegasque': 'mc', 'Spanish': 'es',
+    'French': 'fr', 'Australian': 'au', 'Japanese': 'jp', 'Finnish': 'fi',
+    'Canadian': 'ca', 'Thai': 'th', 'American': 'us', 'Chinese': 'cn',
+    'Mexican': 'mx', 'German': 'de', 'Danish': 'dk', 'New Zealander': 'nz',
+    'Italian': 'it', 'Brazilian': 'br', 'Polish': 'pl', 'Argentine': 'ar',
+    'Argentinian': 'ar', 'Swiss': 'ch', 'Belgian': 'be', 'Austrian': 'at',
+    'Swedish': 'se', 'South African': 'za', 'Russian': 'ru', 'Colombian': 'co',
+    'Venezuelan': 've', 'Indian': 'in', 'Indonesian': 'id', 'Irish': 'ie',
+    'Portuguese': 'pt', 'Chilean': 'cl', 'Rhodesian': 'zw', 'Uruguayan': 'uy',
+    'Liechtensteiner': 'li', 'Malaysian': 'my', 'Hungarian': 'hu', 'Czech': 'cz'
 }
 
 INITIAL_ELO = 1500
@@ -65,27 +70,33 @@ def load_and_calculate_data():
         st.error("Brakuje plików! Upewnij się, że masz: races, drivers, results, qualifying, sprint_results, constructors.")
         return pd.DataFrame(), pd.DataFrame()
 
-    # Słowniki pomocnicze
-    driver_dict = dict(zip(drivers.driverId, drivers.driverRef))
-    # Łączymy wyniki z konstruktorami, żeby wyciągnąć aktualny zespół
     res_cons = results.merge(constructors, on='constructorId', suffixes=('', '_cons'))
     
-    # Wyciąganie najnowszych informacji o zespole i narodowości dla kierowcy
+    # Przetwarzanie kierowców (Wielkie litery i Flagi z Flagcdn)
+    driver_dict = {}
     driver_info = {}
     for _, drv in drivers.iterrows():
-        driver_info[drv['driverRef']] = {
-            'Imie_Nazwisko': f"{drv['forename']} {drv['surname']}",
-            'Narodowosc': drv['nationality'],
+        # Imię i nazwisko WIELKIMI LITERAMI
+        full_name = f"{drv['forename']} {drv['surname']}".upper()
+        driver_dict[drv['driverId']] = full_name
+        
+        nat = drv['nationality']
+        code = NATIONALITY_TO_CODE.get(nat, '')
+        flag_url = f"https://flagcdn.com/24x18/{code}.png" if code else None
+        
+        driver_info[full_name] = {
+            'Narodowosc': nat,
+            'Flaga_URL': flag_url,
             'Data_Urodzenia': drv['dob'],
-            'Zespol': 'Brak danych' # Domyślnie
+            'Zespol': 'Brak danych'
         }
         
-    # Szukamy ostatniego zespołu dla każdego kierowcy
     latest_races = res_cons.sort_values('raceId').groupby('driverId').tail(1)
     for _, row in latest_races.iterrows():
-        d_ref = driver_dict.get(row['driverId'])
-        if d_ref:
-            driver_info[d_ref]['Zespol'] = row['name']
+        full_name = driver_dict.get(row['driverId'])
+        if full_name:
+            # Naprawiony błąd: używamy row['name']
+            driver_info[full_name]['Zespol'] = row['name'] 
 
     races = races.sort_values(by=['year', 'round'])
     elo_quali, elo_sprint, elo_race, elo_overall = {}, {}, {}, {}
@@ -111,12 +122,12 @@ def load_and_calculate_data():
             
             for drv in r_results:
                 d_id = drv['driverId']
-                d_ref = driver_dict.get(d_id, str(d_id))
+                full_name = driver_dict.get(d_id, str(d_id))
                 history.append({
                     'Data': race['date'],
                     'Rok': race['year'],
                     'Wyścig': race['name'],
-                    'Kierowca': d_ref,
+                    'Kierowca': full_name,
                     'Elo_Kwalifikacje': round(elo_quali.get(d_id, INITIAL_ELO), 1),
                     'Elo_Sprint': round(elo_sprint.get(d_id, INITIAL_ELO), 1),
                     'Elo_Wyścig': round(elo_race.get(d_id, INITIAL_ELO), 1),
@@ -124,6 +135,26 @@ def load_and_calculate_data():
                 })
 
     return pd.DataFrame(history), pd.DataFrame.from_dict(driver_info, orient='index')
+
+# --- FUNKCJA WYSWIETLAJĄCA TABELE ---
+def display_table(df, elo_col):
+    if elo_col == 'Elo_Sprint':
+        df = df[df['Elo_Sprint'] != INITIAL_ELO]
+        
+    disp_df = df[['Flaga_URL', 'Kierowca', elo_col]].sort_values(elo_col, ascending=False).reset_index(drop=True)
+    # Zmieniamy indeks, aby zaczynał się od 1, a nie od 0
+    disp_df.index = disp_df.index + 1
+    
+    st.dataframe(
+        disp_df,
+        column_config={
+            "Flaga_URL": st.column_config.ImageColumn("Kraj"),
+            "Kierowca": st.column_config.TextColumn("Kierowca"),
+            elo_col: st.column_config.NumberColumn("Punkty Elo", format="%.1f")
+        },
+        height=450,
+        use_container_width=True
+    )
 
 # --- ŁADOWANIE DANYCH ---
 with st.spinner("Ładowanie bazy F1..."):
@@ -134,74 +165,87 @@ if df_history.empty:
 
 # --- NAWIGACJA ---
 st.title("🏎️ Formuła 1 - Baza Rankingowa Elo")
-menu = st.sidebar.radio("Nawigacja", ["Rankingi Główne", "Profile Kierowców"])
+menu = st.sidebar.radio("Nawigacja", ["Rankingi Sezonowe", "Profile Kierowców"])
 
-latest_stats = df_history.sort_values('Data').groupby('Kierowca').tail(1)
-active_drivers = latest_stats[latest_stats['Rok'] >= 2023]
+if menu == "Rankingi Sezonowe":
+    col_left, col_right = st.columns([1, 2])
+    
+    with col_left:
+        # WYBÓR HISTORYCZNYCH SEZONÓW
+        dostepne_lata = sorted(df_history['Rok'].unique(), reverse=True)
+        wybrany_rok = st.selectbox("Wybierz sezon:", dostepne_lata)
+        
+        # Filtrujemy dane do wybranego roku i pobieramy ostatni wynik z tego roku
+        sezon_df = df_history[df_history['Rok'] == wybrany_rok]
+        ostatnie_wyniki = sezon_df.sort_values('Data').groupby('Kierowca').tail(1).copy()
+        
+        # Dodajemy kolumnę z Flagi_URL do wyświetlania w tabeli
+        ostatnie_wyniki['Flaga_URL'] = ostatnie_wyniki['Kierowca'].apply(
+            lambda x: df_info.loc[x, 'Flaga_URL'] if x in df_info.index else None
+        )
 
-if menu == "Rankingi Główne":
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.subheader("🏆 Aktualne Rankingi (Aktywni)")
+        st.subheader(f"🏆 Tabele końcowe: {wybrany_rok}")
         tab1, tab2, tab3, tab4 = st.tabs(["Ogólne", "Wyścig", "Kwalifikacje", "Sprint"])
         
-        with tab1: st.dataframe(active_drivers[['Kierowca', 'Elo_Ogólne']].sort_values('Elo_Ogólne', ascending=False).reset_index(drop=True), height=400)
-        with tab2: st.dataframe(active_drivers[['Kierowca', 'Elo_Wyścig']].sort_values('Elo_Wyścig', ascending=False).reset_index(drop=True), height=400)
-        with tab3: st.dataframe(active_drivers[['Kierowca', 'Elo_Kwalifikacje']].sort_values('Elo_Kwalifikacje', ascending=False).reset_index(drop=True), height=400)
-        with tab4: 
-            sprint_drv = active_drivers[active_drivers['Elo_Sprint'] != INITIAL_ELO]
-            st.dataframe(sprint_drv[['Kierowca', 'Elo_Sprint']].sort_values('Elo_Sprint', ascending=False).reset_index(drop=True), height=400)
+        with tab1: display_table(ostatnie_wyniki, 'Elo_Ogólne')
+        with tab2: display_table(ostatnie_wyniki, 'Elo_Wyścig')
+        with tab3: display_table(ostatnie_wyniki, 'Elo_Kwalifikacje')
+        with tab4: display_table(ostatnie_wyniki, 'Elo_Sprint')
 
-    with col2:
-        st.subheader("📈 Wykres kariery")
+    with col_right:
+        st.subheader("📈 Wykres rywalizacji (Cała historia)")
         elo_type = st.selectbox("Rodzaj Elo:", ['Elo_Ogólne', 'Elo_Wyścig', 'Elo_Kwalifikacje', 'Elo_Sprint'])
         all_drv = sorted(df_history['Kierowca'].unique())
-        sel_drv = st.multiselect("Porównaj kierowców:", all_drv, default=['hamilton', 'max_verstappen', 'leclerc'])
+        
+        # Proponowani zawodnicy
+        def_drv = [d for d in ['LEWIS HAMILTON', 'MAX VERSTAPPEN', 'CHARLES LECLERC'] if d in all_drv]
+        sel_drv = st.multiselect("Porównaj kierowców:", all_drv, default=def_drv)
+        
         if sel_drv:
-            fig = px.line(df_history[df_history['Kierowca'].isin(sel_drv)], x='Data', y=elo_type, color='Kierowca', hover_data=['Wyścig'])
+            fig = px.line(df_history[df_history['Kierowca'].isin(sel_drv)], 
+                          x='Data', y=elo_type, color='Kierowca', hover_data=['Wyścig', 'Rok'])
             st.plotly_chart(fig, use_container_width=True)
 
 elif menu == "Profile Kierowców":
     st.header("👤 Profile Kierowców")
     
-    # Wybór kierowcy z listy aktywnych
-    driver_list = sorted(active_drivers['Kierowca'].unique())
+    # Możesz wyszukać każdego kierowcę w historii
+    driver_list = sorted(df_info.index.unique())
     selected_driver = st.selectbox("Wybierz kierowcę:", driver_list)
     
     if selected_driver:
         info = df_info.loc[selected_driver]
-        stats = latest_stats[latest_stats['Kierowca'] == selected_driver].iloc[0]
         
-        flag = FLAGS.get(info['Narodowosc'], '🏁')
+        # Szukamy ostatniego zarejestrowanego wyniku w całej karierze
+        ostatnie = df_history[df_history['Kierowca'] == selected_driver].sort_values('Data').tail(1).iloc[0]
         
-        # Wizytówka kierowcy
-        st.markdown(f"""
-        ### {flag} {info['Imie_Nazwisko']}
-        **Zespół (Ostatni):** {info['Zespol']} | **Narodowość:** {info['Narodowosc']} | **Data ur.:** {info['Data_Urodzenia']}
-        """)
+        col_img, col_txt = st.columns([1, 15])
+        with col_img:
+            if info['Flaga_URL']:
+                st.image(info['Flaga_URL'], width=40)
+        with col_txt:
+            st.markdown(f"### {selected_driver}")
+            
+        st.markdown(f"**Ostatni Zespół:** {info['Zespol']} | **Narodowość:** {info['Narodowosc']} | **Data ur.:** {info['Data_Urodzenia']}")
         
-        # Kafelki z rankingami (Metryki)
+        # Kafelki
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Elo Ogólne", stats['Elo_Ogólne'])
-        c2.metric("Elo Wyścig", stats['Elo_Wyścig'])
-        c3.metric("Elo Kwalifikacje", stats['Elo_Kwalifikacje'])
-        c4.metric("Elo Sprint", stats['Elo_Sprint'] if stats['Elo_Sprint'] != INITIAL_ELO else "Brak danych")
+        c1.metric("Elo Ogólne (Obecne/Końcowe)", ostatnie['Elo_Ogólne'])
+        c2.metric("Elo Wyścig", ostatnie['Elo_Wyścig'])
+        c3.metric("Elo Kwalifikacje", ostatnie['Elo_Kwalifikacje'])
+        c4.metric("Elo Sprint", ostatnie['Elo_Sprint'] if ostatnie['Elo_Sprint'] != INITIAL_ELO else "Brak")
         
         st.markdown("---")
-        st.subheader(f"📈 Wykres ewolucji Elo ({info['Imie_Nazwisko']})")
+        st.subheader(f"📈 Wykres kariery - {selected_driver}")
         
-        # Wykres wszystkich rodzajów Elo dla tego jednego kierowcy
         driver_history = df_history[df_history['Kierowca'] == selected_driver]
-        
-        # Przekształcamy dane do formatu przyjaznego dla Plotly (żeby mieć kilka linii na jednym wykresie)
         melted_df = driver_history.melt(id_vars=['Data', 'Wyścig', 'Rok'], 
                                         value_vars=['Elo_Ogólne', 'Elo_Wyścig', 'Elo_Kwalifikacje', 'Elo_Sprint'],
                                         var_name='Rodzaj_Elo', value_name='Wartość')
         
-        # Usuwamy puste starty sprinterskie z wykresu, żeby nie psuły skali
+        # Usuwamy z wykresu zera ze sprintów
         melted_df = melted_df[~((melted_df['Rodzaj_Elo'] == 'Elo_Sprint') & (melted_df['Wartość'] == INITIAL_ELO))]
         
         fig2 = px.line(melted_df, x='Data', y='Wartość', color='Rodzaj_Elo', 
-                       title=f"Historia kariery - {info['Imie_Nazwisko']}",
                        hover_data=['Wyścig', 'Rok'])
         st.plotly_chart(fig2, use_container_width=True)
