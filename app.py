@@ -15,6 +15,7 @@ T = {
         'menu_peak': "👑 Ranking Wszech Czasów",
         'menu_decades': "📅 Najlepsi w Dekadach",
         'menu_profile': "👤 Profile Kierowców",
+        'menu_team': "🏗️ Ranking Zespołów",
         'menu_track': "🛤️ Elo Torów (Trudność)",
         'menu_results': "📊 Profile Wyścigów",
         'missing_files': "Brakuje plików! Upewnij się, że w folderze są: races, drivers, results, qualifying, sprint_results, constructors, circuits.",
@@ -41,6 +42,11 @@ T = {
         'dob': "Data ur.", 'all_teams': "Wszystkie zespoły w karierze",
         'last_elo': "Ostatnie Elo (Pożegnalne/Obecne)", 'peak_max': "PEAK Elo (Max)", 'lowest_elo': "Najniższe Elo (Min)",
         'career_path': "📈 Przebieg kariery",
+        'team_title': "🏗️ Ranking Zespołów (Konstruktorzy)",
+        'team_desc': "Śledź siłę poszczególnych konstruktorów na przestrzeni lat. Elo zespołu rośnie, gdy jego bolidy osiągają wyniki ponad oczekiwania.",
+        'team_table': "Ostatnie znane Elo zespołów",
+        'team_chart': "📈 Historia siły konstruktorów",
+        'compare_teams': "Porównaj zespoły:",
         'track_title': "🛤️ Ranking Torów F1 (Indeks Chaosu)",
         'track_desc': "Każdy tor 'walczy' z faworytem wyścigu. Jeśli faworyt nie wygra wyścigu, tor zyskuje punkty. Im wyższe Elo toru, tym bardziej jest nieprzewidywalny i trudny!",
         'track_table': "Zestawienie torów (Ranking pełny)",
@@ -64,6 +70,7 @@ T = {
         'menu_peak': "👑 All-Time Peak Ranking",
         'menu_decades': "📅 Best of the Decades",
         'menu_profile': "👤 Driver Profiles",
+        'menu_team': "🏗️ Team Ranking",
         'menu_track': "🛤️ Track Elo (Difficulty)",
         'menu_results': "📊 Event Profiles",
         'missing_files': "Missing files! Ensure you have: races, drivers, results, qualifying, sprint_results, constructors, circuits.",
@@ -90,6 +97,11 @@ T = {
         'dob': "Date of Birth", 'all_teams': "All career teams",
         'last_elo': "Last Elo (Current/Final)", 'peak_max': "PEAK Elo (Max)", 'lowest_elo': "Lowest Elo (Min)",
         'career_path': "📈 Career Progression",
+        'team_title': "🏗️ Team Ranking (Constructors)",
+        'team_desc': "Track the strength of constructors over the years. Team Elo grows when their cars perform above expectations.",
+        'team_table': "Latest Known Team Elo",
+        'team_chart': "📈 Constructor Strength History",
+        'compare_teams': "Compare teams:",
         'track_title': "🛤️ F1 Track Ranking (Chaos Index)",
         'track_desc': "Each track 'fights' the race favorite. If the favorite fails to win, the track gains points. Higher Elo means a more unpredictable and difficult track!",
         'track_table': "Track breakdown (Full Ranking)",
@@ -127,10 +139,15 @@ CIRCUIT_COUNTRY_TO_CODE = {
     'South Africa': 'za', 'Argentina': 'ar', 'Morocco': 'ma', 'Switzerland': 'ch', 'Sweden': 'se'
 }
 
-INITIAL_DRIVER_ELO = 1000
-INITIAL_TEAM_ELO = 1000
-INITIAL_TRACK_ELO = 1000
+INITIAL_DRIVER_ELO = 1300
+INITIAL_TEAM_ELO = 1300
+INITIAL_TRACK_ELO = 1300
 K_QUALI, K_SPRINT, K_RACE, K_TRACK = 1.0, 1.5, 2.0, 16.0
+
+# --- NOWE: WAGI ELO (Kierowca vs Bolid) ---
+# Suma musi wynosić 1.0! 
+WEIGHT_DRIVER = 0.35  # Kierowca to 35% sukcesu
+WEIGHT_TEAM = 0.65    # Bolid to 65% sukcesu
 
 def get_expected_score(rating_a, rating_b):
     return 1 / (1 + math.pow(10, (rating_b - rating_a) / 400))
@@ -179,7 +196,6 @@ def load_and_calculate_data():
 
     races = races.sort_values(by=['year', 'round'])
     
-    # Inicjalizacja słowników dla Kierowców i Zespołów
     elo_quali, elo_sprint, elo_race, elo_overall = {}, {}, {}, {}
     elo_team_quali, elo_team_sprint, elo_team_race, elo_team_overall = {}, {}, {}, {}
     
@@ -248,7 +264,6 @@ def load_and_calculate_data():
                     'Elo_Kwalifikacje': 0, 'Elo_Sprint': 0, 'Elo_Wyścig': 0, 'Elo_Ogólne': 0, 'Elo_Zespołu': 0
                 })
 
-            # AKTUALIZACJA TRACK-SPECIFIC DRIVER ELO
             for d in r_res:
                 if (d['driverId'], c_id) not in elo_driver_track:
                     elo_driver_track[(d['driverId'], c_id)] = INITIAL_DRIVER_ELO
@@ -268,7 +283,6 @@ def load_and_calculate_data():
             for d_id in changes_dt:
                 elo_driver_track[(d_id, c_id)] = current_dt_elo[d_id] + changes_dt[d_id]
 
-            # ELO TORU (Względem faworyta - uwzględnia teraz kombinowane Elo Kierowca+Zespół)
             current_race_elos = {}
             for d in r_res:
                 drv_elo = elo_overall.get(d['driverId'], INITIAL_DRIVER_ELO)
@@ -291,14 +305,12 @@ def load_and_calculate_data():
                 'Elo_Toru': round(elo_tracks[c_id], 1)
             })
 
-            # AKTUALIZACJA GŁÓWNEGO ELO KIEROWCÓW I ZESPOŁÓW
             update_driver_team_elo(r_res, elo_race, elo_overall, elo_team_race, elo_team_overall, K_RACE)
             
             for idx in range(len(history) - len(r_res), len(history)):
                 hist_row = history[idx]
                 fname = hist_row['Kierowca']
                 d_id = next(k for k, v in driver_dict.items() if v == fname)
-                # Odtwarzamy constructor_id do zapisu
                 c_id = next(d['constructorId'] for d in r_res if d['driverId'] == d_id)
                 
                 hist_row['Elo_Kwalifikacje'] = round(elo_quali.get(d_id, INITIAL_DRIVER_ELO), 1)
@@ -335,13 +347,13 @@ def update_driver_team_elo(event_results, specific_drv_elo, overall_drv_elo, spe
             id_a, pos_a, c_id_a = event_results[i]['driverId'], event_results[i]['pos'], event_results[i]['constructorId']
             id_b, pos_b, c_id_b = event_results[j]['driverId'], event_results[j]['pos'], event_results[j]['constructorId']
             
-            # Formuła Efektywnego Elo (50% Kierowca + 50% Zespół)
-            eff_a_spec = specific_drv_elo[id_a] * 0.5 + specific_team_elo[c_id_a] * 0.5
-            eff_b_spec = specific_drv_elo[id_b] * 0.5 + specific_team_elo[c_id_b] * 0.5
+            # --- ZMIENIONA WAGA BOLIDU I KIEROWCY ---
+            eff_a_spec = specific_drv_elo[id_a] * WEIGHT_DRIVER + specific_team_elo[c_id_a] * WEIGHT_TEAM
+            eff_b_spec = specific_drv_elo[id_b] * WEIGHT_DRIVER + specific_team_elo[c_id_b] * WEIGHT_TEAM
             e_a_spec, e_b_spec = get_expected_score(eff_a_spec, eff_b_spec), get_expected_score(eff_b_spec, eff_a_spec)
             
-            eff_a_ovr = overall_drv_elo[id_a] * 0.5 + overall_team_elo[c_id_a] * 0.5
-            eff_b_ovr = overall_drv_elo[id_b] * 0.5 + overall_team_elo[c_id_b] * 0.5
+            eff_a_ovr = overall_drv_elo[id_a] * WEIGHT_DRIVER + overall_team_elo[c_id_a] * WEIGHT_TEAM
+            eff_b_ovr = overall_drv_elo[id_b] * WEIGHT_DRIVER + overall_team_elo[c_id_b] * WEIGHT_TEAM
             e_a_ovr, e_b_ovr = get_expected_score(eff_a_ovr, eff_b_ovr), get_expected_score(eff_b_ovr, eff_a_ovr)
             
             s_a = 1 if pos_a < pos_b else (0 if pos_a > pos_b else 0.5)
@@ -357,7 +369,6 @@ def update_driver_team_elo(event_results, specific_drv_elo, overall_drv_elo, spe
             changes_ovr_drv[id_a] += delta_a_ovr
             changes_ovr_drv[id_b] += delta_b_ovr
             
-            # Zespoły dostają połowę zmiany, bo z reguły mają dwa auta (aby nie rosły 2x szybciej niż kierowcy)
             changes_spec_team[c_id_a] += delta_a_spec * 0.5
             changes_spec_team[c_id_b] += delta_b_spec * 0.5
             changes_ovr_team[c_id_a] += delta_a_ovr * 0.5
@@ -397,7 +408,7 @@ if df_history is None:
     st.error(L['missing_files'])
     st.stop()
 
-menu = st.sidebar.radio(L['nav'], [L['menu_race'], L['menu_peak'], L['menu_decades'], L['menu_profile'], L['menu_track'], L['menu_results']])
+menu = st.sidebar.radio(L['nav'], [L['menu_race'], L['menu_peak'], L['menu_decades'], L['menu_profile'], L['menu_team'], L['menu_track'], L['menu_results']])
 
 def display_driver_table(df, elo_col, show_year=False):
     if elo_col == 'Elo_Sprint': df = df[df['Elo_Sprint'] != INITIAL_DRIVER_ELO]
@@ -608,6 +619,33 @@ elif menu == L['menu_profile']:
                         "Tor": st.column_config.TextColumn(L['track_name']),
                         "Elo_Toru_Dla_Kierowcy": st.column_config.NumberColumn(L['track_elo'], format="%.1f")
                     }, height=500, use_container_width=True)
+
+elif menu == L['menu_team']:
+    st.header(L['team_title'])
+    st.markdown(L['team_desc'])
+    
+    # Wyodrębnienie historii samych zespołów (unikamy dubli z dwóch kierowców)
+    df_teams = df_history.drop_duplicates(subset=['Data', 'Wyścig', 'Zespol'])[['Data', 'Rok', 'Wyścig', 'Zespol', 'Elo_Zespołu']]
+    ostatnie_zespoly = df_teams.sort_values('Data').groupby('Zespol').tail(1).sort_values('Elo_Zespołu', ascending=False).reset_index(drop=True)
+    ostatnie_zespoly.index = ostatnie_zespoly.index + 1
+
+    col1, col2 = st.columns([1, 1.2])
+    with col1:
+        st.subheader(L['team_table'])
+        st.dataframe(ostatnie_zespoly[['Zespol', 'Elo_Zespołu']], 
+            column_config={
+                "Zespol": st.column_config.TextColumn(L['team']),
+                "Elo_Zespołu": st.column_config.NumberColumn(L['team_elo'], format="%.1f")
+            }, height=600, use_container_width=True)
+    with col2:
+        st.subheader(L['team_chart'])
+        all_teams = sorted(df_teams['Zespol'].unique())
+        # Kilka znanych zespołów jako domyślne do porównania
+        def_teams = [t for t in ['Ferrari', 'McLaren', 'Mercedes', 'Red Bull'] if t in all_teams]
+        sel_teams = st.multiselect(L['compare_teams'], all_teams, default=def_teams)
+        if sel_teams:
+            fig_teams = px.line(df_teams[df_teams['Zespol'].isin(sel_teams)], x='Data', y='Elo_Zespołu', color='Zespol', hover_data=['Wyścig', 'Rok'])
+            st.plotly_chart(fig_teams, use_container_width=True)
 
 elif menu == L['menu_track']:
     st.header(L['track_title'])
