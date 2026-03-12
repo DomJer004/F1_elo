@@ -85,7 +85,7 @@ def load_and_calculate_data():
     for _, row in latest_races.iterrows():
         d_ref = driver_dict.get(row['driverId'])
         if d_ref:
-            driver_info[d_ref]['Zespol'] = row['name_cons']
+            driver_info[d_ref]['Zespol'] = row['name']
 
     races = races.sort_values(by=['year', 'round'])
     elo_quali, elo_sprint, elo_race, elo_overall = {}, {}, {}, {}
