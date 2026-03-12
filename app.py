@@ -3,6 +3,7 @@ import pandas as pd
 import math
 import plotly.express as px
 
+# Ustawienia strony muszą być na samej górze
 st.set_page_config(page_title="F1 Advanced Elo", layout="wide", page_icon="🏎️")
 
 # --- SŁOWNIK JĘZYKOWY (TŁUMACZENIA) ---
@@ -16,7 +17,7 @@ T = {
         'menu_profile': "👤 Profile Kierowców",
         'menu_track': "🛤️ Elo Torów (Trudność)",
         'menu_results': "📊 Wyniki Wyścigów",
-        'missing_files': "Brakuje plików! Upewnij się, że masz pobrane: races, drivers, results, qualifying, sprint_results, constructors, circuits.",
+        'missing_files': "Brakuje plików! Upewnij się, że w folderze są: races, drivers, results, qualifying, sprint_results, constructors, circuits.",
         'loading': "Przeliczanie bazy danych i historii wyścigów...",
         'select_season': "Wybierz sezon:",
         'select_race': "Wybierz wyścig:",
@@ -29,7 +30,7 @@ T = {
         'filters': "⚙️ Filtry (Nacja, Zespół)",
         'filter_nat': "Wyszukaj po Narodowości:",
         'filter_team': "Wyszukaj po Zespole:",
-        'team': "Zespół", 'nat': "Narodowość", 'country': "Kraj", 'seasons': "Sezony", 'year': "Rok",
+        'team': "Zespół", 'nat': "Narodowość", 'country': " ", 'seasons': "Sezony", 'year': "Rok",
         'peak_title': "👑 Peak Elo - Ranking Wszech Czasów",
         'peak_desc': "Sprawdź, kto zanotował najwyższy, absolutny szczyt formy (Peak Elo) w całej historii Formuły 1. Zespół wskazuje, w jakich barwach kierowca osiągnął ten szczyt.",
         'top_peak': "🌋 Wszystkie wyniki (Pełny Ranking)",
@@ -38,14 +39,16 @@ T = {
         'decades_desc': "Sprawdź, kto dominował w poszczególnych dziesięcioleciach. Algorytm wyszukuje najwyższe Elo osiągnięte przez kierowców w wybranym przedziale czasu.",
         'search_drv': "Wybierz kierowcę z listy:",
         'dob': "Data ur.", 'all_teams': "Wszystkie zespoły w karierze",
-        'last_elo': "Ostatnie Elo (Pożegnalne/Obecne)", 'peak_max': "PEAK Elo (Max)", 'lowest_elo': "Najniższe Elo (Min)", 'races_count': "Liczba wystąpień (GP)",
+        'last_elo': "Ostatnie Elo (Pożegnalne/Obecne)", 'peak_max': "PEAK Elo (Max)", 'lowest_elo': "Najniższe Elo (Min)",
         'career_path': "📈 Przebieg kariery",
         'track_title': "🛤️ Ranking Torów F1 (Indeks Chaosu)",
         'track_desc': "Każdy tor 'walczy' z faworytem wyścigu. Jeśli faworyt (kierowca z najwyższym Elo) nie wygra wyścigu, tor zyskuje punkty. Im wyższe Elo toru, tym bardziej jest nieprzewidywalny i trudny!",
         'track_table': "Zestawienie torów (Ranking pełny)",
         'track_chart': "📈 Ewolucja trudności toru",
         'race_results_title': "📊 Wyniki Historycznych Wyścigów",
-        'pos': "Poz.", 'points': "Punkty", 'driver': "Kierowca"
+        'pos': "Poz.", 'points': "Punkty", 'driver': "Kierowca",
+        'custom_stats': "📊 Wybierz statystyki do wyświetlenia:",
+        'stat_starts': "Liczba startów (GP)", 'stat_wins': "Wygrane wyścigi", 'stat_podiums': "Miejsca na podium", 'stat_poles': "Pole Position"
     },
     'English': {
         'title': "🏎️ Formula 1 - Elo Rating Database",
@@ -69,7 +72,7 @@ T = {
         'filters': "⚙️ Filters (Nationality, Team)",
         'filter_nat': "Search by Nationality:",
         'filter_team': "Search by Team:",
-        'team': "Team", 'nat': "Nationality", 'country': "Country", 'seasons': "Seasons", 'year': "Year",
+        'team': "Team", 'nat': "Nationality", 'country': " ", 'seasons': "Seasons", 'year': "Year",
         'peak_title': "👑 Peak Elo - All-Time Ranking",
         'peak_desc': "Check who reached the absolute highest peak form (Peak Elo) in the history of Formula 1. The team indicates who they were driving for at that exact moment.",
         'top_peak': "🌋 All results (Full Ranking)",
@@ -78,14 +81,16 @@ T = {
         'decades_desc': "See who dominated in each decade. The algorithm finds the highest Elo achieved by drivers within the selected time frame.",
         'search_drv': "Select driver from the list:",
         'dob': "Date of Birth", 'all_teams': "All career teams",
-        'last_elo': "Last Elo (Current/Final)", 'peak_max': "PEAK Elo (Max)", 'lowest_elo': "Lowest Elo (Min)", 'races_count': "Race Entries (GP)",
+        'last_elo': "Last Elo (Current/Final)", 'peak_max': "PEAK Elo (Max)", 'lowest_elo': "Lowest Elo (Min)",
         'career_path': "📈 Career Progression",
         'track_title': "🛤️ F1 Track Ranking (Chaos Index)",
         'track_desc': "Each track 'fights' the race favorite. If the favorite (driver with highest Elo) fails to win, the track gains points. Higher Elo means a more unpredictable and difficult track!",
         'track_table': "Track breakdown (Full Ranking)",
         'track_chart': "📈 Track difficulty evolution",
         'race_results_title': "📊 Historical Race Results",
-        'pos': "Pos", 'points': "Points", 'driver': "Driver"
+        'pos': "Pos", 'points': "Points", 'driver': "Driver",
+        'custom_stats': "📊 Select career stats to display:",
+        'stat_starts': "Race Starts (GP)", 'stat_wins': "Race Wins", 'stat_podiums': "Podium Finishes", 'stat_poles': "Pole Positions"
     }
 }
 
@@ -154,13 +159,13 @@ def load_and_calculate_data():
             'Narodowosc': nat, 
             'Flaga_URL': f"https://flagcdn.com/24x18/{code}.png" if code else None, 
             'Data_Urodzenia': drv['dob'],
-            'Wszystkie_Zespoly': ", ".join(zespoly_kierowcy) if len(zespoly_kierowcy) > 0 else "Brak danych"
+            'Wszystkie_Zespoly': ", ".join(zespoly_kierowcy) if len(zespoly_kierowcy) > 0 else "Brak danych",
+            'Stat_Starts': 0, 'Stat_Wins': 0, 'Stat_Podiums': 0, 'Stat_Poles': 0
         }
 
     races = races.sort_values(by=['year', 'round'])
     elo_quali, elo_sprint, elo_race, elo_overall, elo_tracks = {}, {}, {}, {}, {}
     track_seasons = {}
-    
     history, track_history = [], []
 
     for _, race in races.iterrows():
@@ -171,22 +176,45 @@ def load_and_calculate_data():
         if c_id not in elo_tracks: 
             elo_tracks[c_id] = INITIAL_ELO
             track_seasons[c_id] = set()
-            
         track_seasons[c_id].add(race['year'])
 
+        # Kwalifikacje
         quali_data = qualifying[qualifying['raceId'] == r_id]
         if not quali_data.empty:
-            q_res = [{'driverId': row['driverId'], 'pos': row['position']} for _, row in quali_data.iterrows()]
+            q_res = []
+            for _, row in quali_data.iterrows():
+                pos = row['position']
+                d_id = row['driverId']
+                q_res.append({'driverId': d_id, 'pos': pos})
+                
+                # Zbieranie statystyk POLE POSITION
+                if pos == 1:
+                    fname = driver_dict.get(d_id)
+                    if fname in driver_info: driver_info[fname]['Stat_Poles'] += 1
+                    
             update_driver_elo(q_res, elo_quali, elo_overall, K_QUALI)
             
+        # Sprint
         sprint_data = sprint_results[sprint_results['raceId'] == r_id]
         if not sprint_data.empty:
             s_res = [{'driverId': row['driverId'], 'pos': row['positionOrder']} for _, row in sprint_data.iterrows()]
             update_driver_elo(s_res, elo_sprint, elo_overall, K_SPRINT)
             
+        # Wyścig
         race_data = results[results['raceId'] == r_id]
         if not race_data.empty:
-            r_res = [{'driverId': row['driverId'], 'pos': row['positionOrder']} for _, row in race_data.iterrows()]
+            r_res = []
+            for _, row in race_data.iterrows():
+                pos = row['positionOrder']
+                d_id = row['driverId']
+                r_res.append({'driverId': d_id, 'pos': pos})
+                
+                # Zbieranie głównych statystyk kariery
+                fname = driver_dict.get(d_id)
+                if fname in driver_info:
+                    driver_info[fname]['Stat_Starts'] += 1
+                    if pos == 1: driver_info[fname]['Stat_Wins'] += 1
+                    if pos <= 3: driver_info[fname]['Stat_Podiums'] += 1
             
             # ELO TORU
             current_race_elos = {d['driverId']: elo_overall.get(d['driverId'], INITIAL_ELO) for d in r_res}
@@ -225,7 +253,6 @@ def load_and_calculate_data():
                     'Elo_Ogólne': round(elo_overall.get(d_id, INITIAL_ELO), 1)
                 })
 
-    # Reset indeksu ułatwi późniejsze używanie idxmax()
     return pd.DataFrame(history).reset_index(drop=True), pd.DataFrame.from_dict(driver_info, orient='index'), pd.DataFrame(track_history)
 
 def update_driver_elo(event_results, specific_elo, overall_elo, k_factor):
@@ -264,8 +291,10 @@ def load_race_results_module():
         drivers = pd.read_csv('drivers.csv')
         constructors = pd.read_csv('constructors.csv')
         
+        # Zabezpieczenie przed błędem KeyError 'nationality' - wymuszone przedrostki!
         races = races.rename(columns={'name': 'race_name'})
-        constructors = constructors.rename(columns={'name': 'team_name'})
+        constructors = constructors.rename(columns={'name': 'team_name', 'nationality': 'constructor_nationality'})
+        drivers = drivers.rename(columns={'nationality': 'driver_nationality'})
         
         df = results.merge(races, on='raceId').merge(drivers, on='driverId').merge(constructors, on='constructorId')
         return df
@@ -288,10 +317,10 @@ if df_history is None:
 
 menu = st.sidebar.radio(L['nav'], [L['menu_race'], L['menu_peak'], L['menu_decades'], L['menu_profile'], L['menu_track'], L['menu_results']])
 
+# Funkcja wyświetlająca główne tabele z wynikami/elo - BEZ TEKSTOWEJ NARODOWOŚCI
 def display_driver_table(df, elo_col, show_year=False):
     if elo_col == 'Elo_Sprint': df = df[df['Elo_Sprint'] != INITIAL_ELO]
     
-    # Tworzymy dynamiczną listę kolumn - wyrzucamy 'Narodowosc', bo flaga wystarczy
     cols = ['Flaga_URL', 'Kierowca']
     if 'Zespol' in df.columns: cols.append('Zespol')
     if show_year and 'Rok' in df.columns: cols.append('Rok')
@@ -311,7 +340,6 @@ def display_driver_table(df, elo_col, show_year=False):
     st.dataframe(disp_df, column_config=col_config, height=600, use_container_width=True)
 
 def get_peak_df(data_df, elo_type):
-    # Pobiera dokładny moment (wiersz) z najwyższym wynikiem dla każdego zawodnika
     idx = data_df.groupby('Kierowca')[elo_type].idxmax()
     peak_df = data_df.loc[idx, ['Kierowca', 'Zespol', 'Rok', 'Narodowosc', elo_type]].copy()
     peak_df['Flaga_URL'] = peak_df['Kierowca'].apply(lambda x: df_info.loc[x, 'Flaga_URL'] if x in df_info.index else None)
@@ -361,7 +389,6 @@ elif menu == L['menu_peak']:
     st.header(L['peak_title'])
     st.markdown(L['peak_desc'])
     
-    # Wyciągamy poprawne Peaki
     peak_overall = get_peak_df(df_history, 'Elo_Ogólne')
     peak_race = get_peak_df(df_history, 'Elo_Wyścig')
     peak_quali = get_peak_df(df_history, 'Elo_Kwalifikacje')
@@ -402,7 +429,6 @@ elif menu == L['menu_decades']:
     dostepne_dekady = sorted(df_history['Dekada'].unique(), reverse=True)
     wybrana_dekada = st.selectbox(L['select_decade'], dostepne_dekady)
     
-    # Filtrujemy historię tylko dla wybranej dekady
     df_dekady = df_history[df_history['Dekada'] == wybrana_dekada]
     
     peak_dec_overall = get_peak_df(df_dekady, 'Elo_Ogólne')
@@ -454,17 +480,40 @@ elif menu == L['menu_profile']:
             
             col_img, col_txt = st.columns([1, 15])
             with col_img:
-                if info['Flaga_URL']: st.image(info['Flaga_URL'], width=60)
+                if info['Flaga_URL']: st.image(info['Flaga_URL'], width=80)
             with col_txt:
                 st.markdown(f"## {selected_driver}")
-                st.markdown(f"**{L['nat']}:** {info['Narodowosc']} | **{L['dob']}:** {info['Data_Urodzenia']}")
+                st.markdown(f"**{L['dob']}:** {info['Data_Urodzenia']}")
             st.markdown(f"🏎️ **{L['all_teams']}:** *{info['Wszystkie_Zespoly']}*")
             st.markdown("---")
-            c1, c2, c3, c4 = st.columns(4)
+            
+            # --- CUSTOM STATS MODULE ---
+            st.markdown(f"### {L['custom_stats']}")
+            
+            # Lista dostępnych do wyboru statystyk
+            stat_options = {
+                L['stat_starts']: info['Stat_Starts'],
+                L['stat_wins']: info['Stat_Wins'],
+                L['stat_podiums']: info['Stat_Podiums'],
+                L['stat_poles']: info['Stat_Poles']
+            }
+            
+            default_selections = [L['stat_starts'], L['stat_wins'], L['stat_podiums']]
+            selected_stats = st.multiselect(" ", list(stat_options.keys()), default=default_selections)
+            
+            if selected_stats:
+                stat_cols = st.columns(len(selected_stats))
+                for i, stat_name in enumerate(selected_stats):
+                    stat_cols[i].metric(stat_name, stat_options[stat_name])
+            
+            st.markdown("---")
+            # --- ELO METRICS ---
+            st.markdown("### 📈 Formuła Elo")
+            c1, c2, c3 = st.columns(3)
             c1.metric(L['last_elo'], ostatnie['Elo_Ogólne'])
-            c2.metric(L['peak_max'], max_elo_row['Elo_Ogólne'], f"{max_elo_row['Rok']} {max_elo_row['Wyścig']} ({max_elo_row['Zespol']})", delta_color="normal")
+            c2.metric(L['peak_max'], max_elo_row['Elo_Ogólne'], f"{max_elo_row['Rok']} {max_elo_row['Wyścig']}", delta_color="normal")
             c3.metric(L['lowest_elo'], min_elo_row['Elo_Ogólne'], f"{min_elo_row['Rok']} {min_elo_row['Wyścig']}", delta_color="inverse")
-            c4.metric(L['races_count'], len(driver_history))
+            
             st.markdown("---")
             st.subheader(L['career_path'])
             melted_df = driver_history.melt(id_vars=['Data', 'Wyścig', 'Rok'], value_vars=['Elo_Ogólne', 'Elo_Wyścig', 'Elo_Kwalifikacje', 'Elo_Sprint'], var_name='Rodzaj_Elo', value_name='Wartość')
@@ -481,11 +530,10 @@ elif menu == L['menu_track']:
     col1, col2 = st.columns([1, 1.2])
     with col1:
         st.subheader(L['track_table'])
-        st.dataframe(ostatnie_tory[['Flaga_URL', 'Tor', 'Kraj', 'Sezony_Wystepowania', 'Elo_Toru']], 
+        st.dataframe(ostatnie_tory[['Flaga_URL', 'Tor', 'Sezony_Wystepowania', 'Elo_Toru']], 
             column_config={
                 "Flaga_URL": st.column_config.ImageColumn(L['country']),
                 "Tor": st.column_config.TextColumn("Tor"),
-                "Kraj": st.column_config.TextColumn(L['country']),
                 "Sezony_Wystepowania": st.column_config.TextColumn(L['seasons']),
                 "Elo_Toru": st.column_config.NumberColumn("Elo", format="%.1f")
             }, height=600, use_container_width=True)
@@ -517,7 +565,11 @@ elif menu == L['menu_results']:
         wyniki = sezon_df[sezon_df['race_name'] == wybrany_wyscig].sort_values('positionOrder')
         
         wyniki['Kierowca'] = wyniki.apply(lambda row: f"{row['forename']} {row['surname']}".upper(), axis=1)
-        wyniki['Flaga_URL'] = wyniki['nationality'].apply(lambda nat: f"https://flagcdn.com/24x18/{NATIONALITY_TO_CODE.get(str(nat).strip(), '')}.png" if NATIONALITY_TO_CODE.get(str(nat).strip(), '') else None)
+        
+        # Używamy zaktualizowanej i bezpiecznej kolumny driver_nationality
+        wyniki['Flaga_URL'] = wyniki['driver_nationality'].apply(
+            lambda nat: f"https://flagcdn.com/24x18/{NATIONALITY_TO_CODE.get(str(nat).strip(), '')}.png" if NATIONALITY_TO_CODE.get(str(nat).strip(), '') else None
+        )
         
         display_results = wyniki[['positionOrder', 'Flaga_URL', 'Kierowca', 'team_name', 'points']].copy() 
         display_results.columns = [L['pos'], L['country'], L['driver'], L['team'], L['points']]
