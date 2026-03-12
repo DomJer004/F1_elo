@@ -9,7 +9,7 @@ st.set_page_config(page_title="F1 Advanced Elo", layout="wide", page_icon="🏎�
 # --- SŁOWNIK JĘZYKOWY (TŁUMACZENIA) ---
 T = {
     'Polski': {
-        'title': "🏎️ Formuła 1 - Baza Rankingowa Elo",
+        'title': "🏎️ Formuła 1 - Baza Rankingowa Elo (Kierowca + Bolid)",
         'nav': "Nawigacja",
         'menu_race': "🏁 Ranking po Wyścigu",
         'menu_peak': "👑 Ranking Wszech Czasów",
@@ -30,7 +30,7 @@ T = {
         'filters': "⚙️ Filtry (Nacja, Zespół)",
         'filter_nat': "Wyszukaj po Narodowości:",
         'filter_team': "Wyszukaj po Zespole:",
-        'team': "Zespół", 'nat': "Narodowość", 'country': " ", 'seasons': "Sezony", 'year': "Rok",
+        'team': "Zespół", 'team_elo': "Elo Zespołu", 'nat': "Narodowość", 'country': " ", 'seasons': "Sezony", 'year': "Rok",
         'peak_title': "👑 Peak Elo - Ranking Wszech Czasów",
         'peak_desc': "Sprawdź, kto zanotował najwyższy, absolutny szczyt formy (Peak Elo) w całej historii Formuły 1. Zespół wskazuje, w jakich barwach kierowca osiągnął ten szczyt.",
         'top_peak': "🌋 Wszystkie wyniki (Pełny Ranking)",
@@ -42,7 +42,7 @@ T = {
         'last_elo': "Ostatnie Elo (Pożegnalne/Obecne)", 'peak_max': "PEAK Elo (Max)", 'lowest_elo': "Najniższe Elo (Min)",
         'career_path': "📈 Przebieg kariery",
         'track_title': "🛤️ Ranking Torów F1 (Indeks Chaosu)",
-        'track_desc': "Każdy tor 'walczy' z faworytem wyścigu. Jeśli faworyt (kierowca z najwyższym Elo) nie wygra wyścigu, tor zyskuje punkty. Im wyższe Elo toru, tym bardziej jest nieprzewidywalny i trudny!",
+        'track_desc': "Każdy tor 'walczy' z faworytem wyścigu. Jeśli faworyt nie wygra wyścigu, tor zyskuje punkty. Im wyższe Elo toru, tym bardziej jest nieprzewidywalny i trudny!",
         'track_table': "Zestawienie torów (Ranking pełny)",
         'track_chart': "📈 Ewolucja trudności toru",
         'race_results_title': "📊 Profile Historycznych Sesji",
@@ -58,7 +58,7 @@ T = {
         'track_name': "Tor (W całej karierze)", 'track_elo': "Elo na tym torze"
     },
     'English': {
-        'title': "🏎️ Formula 1 - Elo Rating Database",
+        'title': "🏎️ Formula 1 - Elo Rating Database (Driver + Car)",
         'nav': "Navigation",
         'menu_race': "🏁 Ranking after Race",
         'menu_peak': "👑 All-Time Peak Ranking",
@@ -79,7 +79,7 @@ T = {
         'filters': "⚙️ Filters (Nationality, Team)",
         'filter_nat': "Search by Nationality:",
         'filter_team': "Search by Team:",
-        'team': "Team", 'nat': "Nationality", 'country': " ", 'seasons': "Seasons", 'year': "Year",
+        'team': "Team", 'team_elo': "Team Elo", 'nat': "Nationality", 'country': " ", 'seasons': "Seasons", 'year': "Year",
         'peak_title': "👑 Peak Elo - All-Time Ranking",
         'peak_desc': "Check who reached the absolute highest peak form (Peak Elo) in the history of Formula 1. The team indicates who they were driving for at that exact moment.",
         'top_peak': "🌋 All results (Full Ranking)",
@@ -91,7 +91,7 @@ T = {
         'last_elo': "Last Elo (Current/Final)", 'peak_max': "PEAK Elo (Max)", 'lowest_elo': "Lowest Elo (Min)",
         'career_path': "📈 Career Progression",
         'track_title': "🛤️ F1 Track Ranking (Chaos Index)",
-        'track_desc': "Each track 'fights' the race favorite. If the favorite (driver with highest Elo) fails to win, the track gains points. Higher Elo means a more unpredictable and difficult track!",
+        'track_desc': "Each track 'fights' the race favorite. If the favorite fails to win, the track gains points. Higher Elo means a more unpredictable and difficult track!",
         'track_table': "Track breakdown (Full Ranking)",
         'track_chart': "📈 Track difficulty evolution",
         'race_results_title': "📊 Historical Event Profiles",
@@ -127,7 +127,9 @@ CIRCUIT_COUNTRY_TO_CODE = {
     'South Africa': 'za', 'Argentina': 'ar', 'Morocco': 'ma', 'Switzerland': 'ch', 'Sweden': 'se'
 }
 
-INITIAL_ELO = 1500
+INITIAL_DRIVER_ELO = 1000
+INITIAL_TEAM_ELO = 1000
+INITIAL_TRACK_ELO = 1000
 K_QUALI, K_SPRINT, K_RACE, K_TRACK = 1.0, 1.5, 2.0, 16.0
 
 def get_expected_score(rating_a, rating_b):
@@ -176,8 +178,13 @@ def load_and_calculate_data():
         }
 
     races = races.sort_values(by=['year', 'round'])
-    elo_quali, elo_sprint, elo_race, elo_overall, elo_tracks = {}, {}, {}, {}, {}
-    elo_driver_track = {} # NOWE: Elo kierowcy na konkretnym torze!
+    
+    # Inicjalizacja słowników dla Kierowców i Zespołów
+    elo_quali, elo_sprint, elo_race, elo_overall = {}, {}, {}, {}
+    elo_team_quali, elo_team_sprint, elo_team_race, elo_team_overall = {}, {}, {}, {}
+    
+    elo_tracks = {}
+    elo_driver_track = {}
     track_seasons = {}
     history, track_history = [], []
 
@@ -187,7 +194,7 @@ def load_and_calculate_data():
         c_country = circuit_country_dict.get(c_id, "Unknown")
         
         if c_id not in elo_tracks: 
-            elo_tracks[c_id] = INITIAL_ELO
+            elo_tracks[c_id] = INITIAL_TRACK_ELO
             track_seasons[c_id] = set()
         track_seasons[c_id].add(race['year'])
 
@@ -198,17 +205,18 @@ def load_and_calculate_data():
             for _, row in quali_data.iterrows():
                 pos = row['position']
                 d_id = row['driverId']
-                q_res.append({'driverId': d_id, 'pos': pos})
+                const_id = row['constructorId']
+                q_res.append({'driverId': d_id, 'constructorId': const_id, 'pos': pos})
                 if pos == 1:
                     poles_in_race.add(d_id)
                     fname = driver_dict.get(d_id)
                     if fname in driver_info: driver_info[fname]['Stat_Poles'] += 1
-            update_driver_elo(q_res, elo_quali, elo_overall, K_QUALI)
+            update_driver_team_elo(q_res, elo_quali, elo_overall, elo_team_quali, elo_team_overall, K_QUALI)
             
         sprint_data = sprint_results[sprint_results['raceId'] == r_id]
         if not sprint_data.empty:
-            s_res = [{'driverId': row['driverId'], 'pos': row['positionOrder']} for _, row in sprint_data.iterrows()]
-            update_driver_elo(s_res, elo_sprint, elo_overall, K_SPRINT)
+            s_res = [{'driverId': row['driverId'], 'constructorId': row['constructorId'], 'pos': row['positionOrder']} for _, row in sprint_data.iterrows()]
+            update_driver_team_elo(s_res, elo_sprint, elo_overall, elo_team_sprint, elo_team_overall, K_SPRINT)
             
         race_data = results[results['raceId'] == r_id]
         if not race_data.empty:
@@ -221,14 +229,14 @@ def load_and_calculate_data():
             for _, row in race_data.iterrows():
                 pos = row['positionOrder']
                 d_id = row['driverId']
-                r_res.append({'driverId': d_id, 'pos': pos})
+                const_id = row['constructorId']
+                r_res.append({'driverId': d_id, 'constructorId': const_id, 'pos': pos})
                 fname = driver_dict.get(d_id)
                 if fname in driver_info:
                     driver_info[fname]['Stat_Starts'] += 1
                     if pos == 1: driver_info[fname]['Stat_Wins'] += 1
                     if pos <= 3: driver_info[fname]['Stat_Podiums'] += 1
 
-                # Ustawianie znaczników dla historii
                 history.append({
                     'Data': race['date'], 'Rok': race['year'], 'Dekada': f"{(race['year'] // 10) * 10}s",
                     'Runda': race['round'], 'Wyścig': race['name'], 'Kierowca': fname, 
@@ -237,21 +245,20 @@ def load_and_calculate_data():
                     'Is_Podium': True if pos <= 3 else False,
                     'Is_Pole': True if d_id in poles_in_race else False,
                     'Is_Fastest': True if d_id == fastest_lap_driver else False,
-                    'Elo_Kwalifikacje': 0, 'Elo_Sprint': 0, 'Elo_Wyścig': 0, 'Elo_Ogólne': 0 # Wypełnimy po update
+                    'Elo_Kwalifikacje': 0, 'Elo_Sprint': 0, 'Elo_Wyścig': 0, 'Elo_Ogólne': 0, 'Elo_Zespołu': 0
                 })
 
             # AKTUALIZACJA TRACK-SPECIFIC DRIVER ELO
             for d in r_res:
                 if (d['driverId'], c_id) not in elo_driver_track:
-                    elo_driver_track[(d['driverId'], c_id)] = INITIAL_ELO
+                    elo_driver_track[(d['driverId'], c_id)] = INITIAL_DRIVER_ELO
             current_dt_elo = {d['driverId']: elo_driver_track[(d['driverId'], c_id)] for d in r_res}
             changes_dt = {d['driverId']: 0 for d in r_res}
             
             for i in range(len(r_res)):
                 for j in range(i+1, len(r_res)):
-                    a, b = r_res[i], r_res[j]
-                    id_a, pos_a = a['driverId'], a['pos']
-                    id_b, pos_b = b['driverId'], b['pos']
+                    id_a, pos_a = r_res[i]['driverId'], r_res[i]['pos']
+                    id_b, pos_b = r_res[j]['driverId'], r_res[j]['pos']
                     e_a = get_expected_score(current_dt_elo[id_a], current_dt_elo[id_b])
                     e_b = get_expected_score(current_dt_elo[id_b], current_dt_elo[id_a])
                     s_a = 1 if pos_a < pos_b else (0 if pos_a > pos_b else 0.5)
@@ -261,8 +268,13 @@ def load_and_calculate_data():
             for d_id in changes_dt:
                 elo_driver_track[(d_id, c_id)] = current_dt_elo[d_id] + changes_dt[d_id]
 
-            # ELO TORU (Względem faworyta)
-            current_race_elos = {d['driverId']: elo_overall.get(d['driverId'], INITIAL_ELO) for d in r_res}
+            # ELO TORU (Względem faworyta - uwzględnia teraz kombinowane Elo Kierowca+Zespół)
+            current_race_elos = {}
+            for d in r_res:
+                drv_elo = elo_overall.get(d['driverId'], INITIAL_DRIVER_ELO)
+                team_elo = elo_team_overall.get(d['constructorId'], INITIAL_TEAM_ELO)
+                current_race_elos[d['driverId']] = (drv_elo + team_elo) / 2.0
+                
             if current_race_elos:
                 favorite_id = max(current_race_elos, key=current_race_elos.get)
                 favorite_elo = current_race_elos[favorite_id]
@@ -279,58 +291,84 @@ def load_and_calculate_data():
                 'Elo_Toru': round(elo_tracks[c_id], 1)
             })
 
-            # AKTUALIZACJA GŁÓWNEGO ELO KIEROWCÓW
-            update_driver_elo(r_res, elo_race, elo_overall, K_RACE)
+            # AKTUALIZACJA GŁÓWNEGO ELO KIEROWCÓW I ZESPOŁÓW
+            update_driver_team_elo(r_res, elo_race, elo_overall, elo_team_race, elo_team_overall, K_RACE)
             
-            # Aktualizacja zapisanych wierszy history (ostatnie N elementów)
             for idx in range(len(history) - len(r_res), len(history)):
                 hist_row = history[idx]
                 fname = hist_row['Kierowca']
-                # Odwrócony słownik dla driver_dict na szybko (wyszukiwanie ID po imieniu dla zapisu)
                 d_id = next(k for k, v in driver_dict.items() if v == fname)
-                hist_row['Elo_Kwalifikacje'] = round(elo_quali.get(d_id, INITIAL_ELO), 1)
-                hist_row['Elo_Sprint'] = round(elo_sprint.get(d_id, INITIAL_ELO), 1)
-                hist_row['Elo_Wyścig'] = round(elo_race.get(d_id, INITIAL_ELO), 1)
-                hist_row['Elo_Ogólne'] = round(elo_overall.get(d_id, INITIAL_ELO), 1)
+                # Odtwarzamy constructor_id do zapisu
+                c_id = next(d['constructorId'] for d in r_res if d['driverId'] == d_id)
+                
+                hist_row['Elo_Kwalifikacje'] = round(elo_quali.get(d_id, INITIAL_DRIVER_ELO), 1)
+                hist_row['Elo_Sprint'] = round(elo_sprint.get(d_id, INITIAL_DRIVER_ELO), 1)
+                hist_row['Elo_Wyścig'] = round(elo_race.get(d_id, INITIAL_DRIVER_ELO), 1)
+                hist_row['Elo_Ogólne'] = round(elo_overall.get(d_id, INITIAL_DRIVER_ELO), 1)
+                hist_row['Elo_Zespołu'] = round(elo_team_overall.get(c_id, INITIAL_TEAM_ELO), 1)
 
-    # Przygotowanie DF dla Track-Specific Driver Elo
-    drv_track_list = []
-    for (d_id, c_id), elo_val in elo_driver_track.items():
-        fname = driver_dict.get(d_id)
-        cname = circuit_dict.get(c_id)
-        if fname and cname:
-            drv_track_list.append({
-                'Kierowca': fname, 'Tor': cname, 'Flaga_URL': f"https://flagcdn.com/24x18/{CIRCUIT_COUNTRY_TO_CODE.get(circuit_country_dict.get(c_id, ''), '')}.png",
-                'Elo_Toru_Dla_Kierowcy': round(elo_val, 1)
-            })
-    df_drv_track = pd.DataFrame(drv_track_list)
+    df_drv_track = pd.DataFrame([
+        {'Kierowca': driver_dict.get(d_id), 'Tor': circuit_dict.get(c_id), 
+         'Flaga_URL': f"https://flagcdn.com/24x18/{CIRCUIT_COUNTRY_TO_CODE.get(circuit_country_dict.get(c_id, ''), '')}.png",
+         'Elo_Toru_Dla_Kierowcy': round(elo_val, 1)}
+        for (d_id, c_id), elo_val in elo_driver_track.items() if driver_dict.get(d_id) and circuit_dict.get(c_id)
+    ])
 
     return pd.DataFrame(history).reset_index(drop=True), pd.DataFrame.from_dict(driver_info, orient='index'), pd.DataFrame(track_history), df_drv_track
 
-def update_driver_elo(event_results, specific_elo, overall_elo, k_factor):
+def update_driver_team_elo(event_results, specific_drv_elo, overall_drv_elo, specific_team_elo, overall_team_elo, k_factor):
     for drv in event_results:
         d_id = drv['driverId']
-        if d_id not in specific_elo: specific_elo[d_id] = INITIAL_ELO
-        if d_id not in overall_elo: overall_elo[d_id] = INITIAL_ELO
+        c_id = drv['constructorId']
+        if d_id not in specific_drv_elo: specific_drv_elo[d_id] = INITIAL_DRIVER_ELO
+        if d_id not in overall_drv_elo: overall_drv_elo[d_id] = INITIAL_DRIVER_ELO
+        if c_id not in specific_team_elo: specific_team_elo[c_id] = INITIAL_TEAM_ELO
+        if c_id not in overall_team_elo: overall_team_elo[c_id] = INITIAL_TEAM_ELO
             
-    changes_spec, changes_ovr = {d['driverId']: 0 for d in event_results}, {d['driverId']: 0 for d in event_results}
+    changes_spec_drv = {d['driverId']: 0 for d in event_results}
+    changes_ovr_drv = {d['driverId']: 0 for d in event_results}
+    changes_spec_team = {d['constructorId']: 0 for d in event_results}
+    changes_ovr_team = {d['constructorId']: 0 for d in event_results}
     
     for i in range(len(event_results)):
         for j in range(i + 1, len(event_results)):
-            id_a, pos_a = event_results[i]['driverId'], event_results[i]['pos']
-            id_b, pos_b = event_results[j]['driverId'], event_results[j]['pos']
-            e_a_spec, e_b_spec = get_expected_score(specific_elo[id_a], specific_elo[id_b]), get_expected_score(specific_elo[id_b], specific_elo[id_a])
-            e_a_ovr, e_b_ovr = get_expected_score(overall_elo[id_a], overall_elo[id_b]), get_expected_score(overall_elo[id_b], overall_elo[id_a])
+            id_a, pos_a, c_id_a = event_results[i]['driverId'], event_results[i]['pos'], event_results[i]['constructorId']
+            id_b, pos_b, c_id_b = event_results[j]['driverId'], event_results[j]['pos'], event_results[j]['constructorId']
+            
+            # Formuła Efektywnego Elo (50% Kierowca + 50% Zespół)
+            eff_a_spec = specific_drv_elo[id_a] * 0.5 + specific_team_elo[c_id_a] * 0.5
+            eff_b_spec = specific_drv_elo[id_b] * 0.5 + specific_team_elo[c_id_b] * 0.5
+            e_a_spec, e_b_spec = get_expected_score(eff_a_spec, eff_b_spec), get_expected_score(eff_b_spec, eff_a_spec)
+            
+            eff_a_ovr = overall_drv_elo[id_a] * 0.5 + overall_team_elo[c_id_a] * 0.5
+            eff_b_ovr = overall_drv_elo[id_b] * 0.5 + overall_team_elo[c_id_b] * 0.5
+            e_a_ovr, e_b_ovr = get_expected_score(eff_a_ovr, eff_b_ovr), get_expected_score(eff_b_ovr, eff_a_ovr)
+            
             s_a = 1 if pos_a < pos_b else (0 if pos_a > pos_b else 0.5)
             s_b = 1 if pos_b < pos_a else (0 if pos_b > pos_a else 0.5)
-            changes_spec[id_a] += k_factor * (s_a - e_a_spec)
-            changes_spec[id_b] += k_factor * (s_b - e_b_spec)
-            changes_ovr[id_a] += k_factor * (s_a - e_a_ovr)
-            changes_ovr[id_b] += k_factor * (s_b - e_b_ovr)
             
-    for d_id in changes_spec:
-        specific_elo[d_id] += changes_spec[d_id]
-        overall_elo[d_id] += changes_ovr[d_id]
+            delta_a_spec = k_factor * (s_a - e_a_spec)
+            delta_b_spec = k_factor * (s_b - e_b_spec)
+            delta_a_ovr = k_factor * (s_a - e_a_ovr)
+            delta_b_ovr = k_factor * (s_b - e_b_ovr)
+            
+            changes_spec_drv[id_a] += delta_a_spec
+            changes_spec_drv[id_b] += delta_b_spec
+            changes_ovr_drv[id_a] += delta_a_ovr
+            changes_ovr_drv[id_b] += delta_b_ovr
+            
+            # Zespoły dostają połowę zmiany, bo z reguły mają dwa auta (aby nie rosły 2x szybciej niż kierowcy)
+            changes_spec_team[c_id_a] += delta_a_spec * 0.5
+            changes_spec_team[c_id_b] += delta_b_spec * 0.5
+            changes_ovr_team[c_id_a] += delta_a_ovr * 0.5
+            changes_ovr_team[c_id_b] += delta_b_ovr * 0.5
+            
+    for d_id in changes_spec_drv:
+        specific_drv_elo[d_id] += changes_spec_drv[d_id]
+        overall_drv_elo[d_id] += changes_ovr_drv[d_id]
+    for c_id in changes_spec_team:
+        specific_team_elo[c_id] += changes_spec_team[c_id]
+        overall_team_elo[c_id] += changes_ovr_team[c_id]
 
 @st.cache_data
 def load_event_profiles_data():
@@ -362,11 +400,11 @@ if df_history is None:
 menu = st.sidebar.radio(L['nav'], [L['menu_race'], L['menu_peak'], L['menu_decades'], L['menu_profile'], L['menu_track'], L['menu_results']])
 
 def display_driver_table(df, elo_col, show_year=False):
-    if elo_col == 'Elo_Sprint': df = df[df['Elo_Sprint'] != INITIAL_ELO]
+    if elo_col == 'Elo_Sprint': df = df[df['Elo_Sprint'] != INITIAL_DRIVER_ELO]
     cols = ['Flaga_URL', 'Kierowca']
     if 'Zespol' in df.columns: cols.append('Zespol')
     if show_year and 'Rok' in df.columns: cols.append('Rok')
-    cols.append(elo_col)
+    cols.extend(['Elo_Zespołu', elo_col])
 
     disp_df = df[cols].sort_values(elo_col, ascending=False).reset_index(drop=True)
     disp_df.index = disp_df.index + 1
@@ -375,13 +413,14 @@ def display_driver_table(df, elo_col, show_year=False):
         "Kierowca": st.column_config.TextColumn(L['driver']),
         "Zespol": st.column_config.TextColumn(L['team']),
         "Rok": st.column_config.NumberColumn(L['year'], format="%d"),
+        "Elo_Zespołu": st.column_config.NumberColumn(L['team_elo'], format="%.1f"),
         elo_col: st.column_config.NumberColumn("Elo", format="%.1f")
     }
     st.dataframe(disp_df, column_config=col_config, height=600, use_container_width=True)
 
 def get_peak_df(data_df, elo_type):
     idx = data_df.groupby('Kierowca')[elo_type].idxmax()
-    peak_df = data_df.loc[idx, ['Kierowca', 'Zespol', 'Rok', 'Narodowosc', elo_type]].copy()
+    peak_df = data_df.loc[idx, ['Kierowca', 'Zespol', 'Rok', 'Narodowosc', 'Elo_Zespołu', elo_type]].copy()
     peak_df['Flaga_URL'] = peak_df['Kierowca'].apply(lambda x: df_info.loc[x, 'Flaga_URL'] if x in df_info.index else None)
     return peak_df
 
@@ -452,7 +491,7 @@ elif menu == L['menu_peak']:
         top_10 = peak_overall.nlargest(10, 'Elo_Ogólne')
         if not top_10.empty:
             fig_peak = px.bar(top_10, x='Kierowca', y='Elo_Ogólne', color='Elo_Ogólne', title="Top 10 z wybranych (Prime Form)", hover_data=['Zespol', 'Rok'])
-            fig_peak.update_yaxes(range=[1500, top_10['Elo_Ogólne'].max() + 50])
+            fig_peak.update_yaxes(range=[INITIAL_DRIVER_ELO, top_10['Elo_Ogólne'].max() + 50])
             st.plotly_chart(fig_peak, use_container_width=True)
 
 elif menu == L['menu_decades']:
@@ -540,11 +579,10 @@ elif menu == L['menu_profile']:
                 with c_h4: show_fls = st.checkbox(L['h_fastest'])
 
                 melted_df = driver_history.melt(id_vars=['Data', 'Wyścig', 'Rok', 'Is_Win', 'Is_Podium', 'Is_Pole', 'Is_Fastest'], value_vars=['Elo_Ogólne', 'Elo_Wyścig', 'Elo_Kwalifikacje', 'Elo_Sprint'], var_name='Rodzaj_Elo', value_name='Wartość')
-                melted_df = melted_df[~((melted_df['Rodzaj_Elo'] == 'Elo_Sprint') & (melted_df['Wartość'] == INITIAL_ELO))]
+                melted_df = melted_df[~((melted_df['Rodzaj_Elo'] == 'Elo_Sprint') & (melted_df['Wartość'] == INITIAL_DRIVER_ELO))]
                 
                 fig2 = px.line(melted_df, x='Data', y='Wartość', color='Rodzaj_Elo', hover_data=['Wyścig', 'Rok'])
                 
-                # Dodawanie znaczników punktowych
                 if show_wins:
                     wins_df = melted_df[melted_df['Is_Win'] & (melted_df['Rodzaj_Elo'] == 'Elo_Ogólne')]
                     fig2.add_trace(go.Scatter(x=wins_df['Data'], y=wins_df['Wartość'], mode='markers', marker=dict(symbol='star', size=12, color='gold'), name=L['h_wins']))
